@@ -96,6 +96,12 @@ class AudioMixer(object):
 
             self.pos += 1
 
+    def record(self, recording):
+        if recording:
+            self.recording.set()
+        else:
+            self.recording.clear()
+
     def new_track(self):
         stream = sounddevice.InputStream(
             channels=1, dtype=numpy.int16,

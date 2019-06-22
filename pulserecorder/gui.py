@@ -37,10 +37,10 @@ class PulseRecorder(QtWidgets.QWidget):
         # The buttons
         buttons = QtWidgets.QHBoxLayout()
         self.button_record = QtWidgets.QPushButton("rec")
-        self.button_record.clicked.connect(self.record)
+        self.button_record.clicked.connect(lambda: self.record(True))
         buttons.addWidget(self.button_record)
         self.button_stop = QtWidgets.QPushButton("stop")
-        self.button_stop.clicked.connect(self.stop)
+        self.button_stop.clicked.connect(lambda: self.record(False))
         self.button_stop.setEnabled(False)
         buttons.addWidget(self.button_stop)
         buttons.addStretch(1)
@@ -97,13 +97,10 @@ class PulseRecorder(QtWidgets.QWidget):
     def sizeHint(self):
         return QtCore.QSize(500, 300)
 
-    def record(self):
-        self.button_record.setEnabled(False)
-        self.button_stop.setEnabled(True)
-
-    def stop(self):
-        self.button_record.setEnabled(True)
-        self.button_stop.setEnabled(False)
+    def record(self, recording):
+        self.audio_mixer.record(recording)
+        self.button_record.setEnabled(not recording)
+        self.button_stop.setEnabled(recording)
 
     def refresh_sources(self):
         # Find all listeners using pulsectl
