@@ -242,13 +242,15 @@ class Track(QtWidgets.QGroupBox):
 
     def disconnect(self):
         self.connected = False
-        logger.info("Track %s disconnected", self.app['name'])
+        self.waveform.connected = False
+        logger.warning("Track %s disconnected", self.app['name'])
 
 
 class Waveform(QtWidgets.QWidget):
     def __init__(self, audio_track):
         super(Waveform, self).__init__()
         self.audio_track = audio_track
+        self.connected = True
         timer = QtCore.QTimer(self)
         timer.setSingleShot(False)
         timer.timeout.connect(lambda: self.update(self.visibleRegion()))
@@ -261,10 +263,17 @@ class Waveform(QtWidgets.QWidget):
         return QtCore.QSize(300, 100)
 
     def paintEvent(self, event):
+        if self.connected:
+            background = QtGui.QColor(200, 200, 255)
+            foreground = QtGui.QColor(0, 0, 255)
+        else:
+            background = QtGui.QColor(200, 200, 200)
+            foreground = QtGui.QColor(80, 80, 80)
+
         painter = QtGui.QPainter(self)
         for re in event.region().rects():
-            painter.fillRect(re, QtGui.QColor(200, 200, 255))
-        painter.setBrush(QtGui.QColor(0, 0, 255))
+            painter.fillRect(re, background)
+        painter.setBrush(foreground)
         for waveform, start in zip(self.audio_track.waveforms,
                                    self.audio_track.waveforms_offsets):
             painter.drawPolygon(self.poly(itertools.chain(
