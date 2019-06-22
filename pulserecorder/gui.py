@@ -88,7 +88,10 @@ class PulseRecorder(QtWidgets.QWidget):
         time.sleep(0.5)
         for pb in pulse.sink_input_list():
             if pb.index not in old_inputs:
-                self.ignored_inputs.add(pb.index)
+                key = (pb.proplist.get('application.name'),
+                       pb.proplist.get('application.process.binary'))
+                if any(key):
+                    self.ignored_inputs.add(key)
 
         # Set timer to refresh sources
         timer = QtCore.QTimer(self)
@@ -110,7 +113,10 @@ class PulseRecorder(QtWidgets.QWidget):
         disconnected = dict(self.tracks_map)
         apps = []
         for out in pulse.sink_input_list():
-            if out.index in self.ignored_inputs:
+            # Ignore ourselves
+            key = (out.proplist.get('application.name'),
+                   out.proplist.get('application.process.binary'))
+            if key in self.ignored_inputs:
                 continue
             app = {'idx': out.index}
             if ('application.name' in out.proplist and
