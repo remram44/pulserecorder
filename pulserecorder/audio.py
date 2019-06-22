@@ -1,8 +1,12 @@
 import atexit
 import bisect
+import logging
 import numpy
 import sounddevice
 import threading
+
+
+logger = logging.getLogger(__name__)
 
 
 class Track(object):
@@ -84,29 +88,54 @@ class AudioMixer(object):
         atexit.register(self.close)
 
     def _read_write_loop(self):
+        overflow_timeout = 0
+        underflow_timeout = 0
         while not self.closed:
             # Zero buffer
             self.output_buf[:] = 0
 
-            mixed = 0
+            append_buf = []
 
             for track in self.tracks:
                 # Read input
                 frames, overflowed = track.stream.read(self.chunk)
                 assert frames.shape == (self.chunk, 1)
 
+                if overflow_timeout:
+                    overflow_timeout -= 1
+                    if overflow_timeout == 0:
+                        logger.warning("Input overflowed")
+                elif overflowed:
+                    overflow_timeout = 100
+
                 # Mix
                 if self.live and not track.live_muted:
-                    mixed += 1
                     self.output_buf += frames
 
                 if self.recording:
-                    track.append(frames, self.pos)
+                    # We delay calling append() until after we wrote the output
+                    # (for latency reasons)
+                    append_buf.append((track, frames))
 
             # Write output
-            self.output_stream.write(self.output_buf)
+            underflowed = self.output_stream.write(self.output_buf)
+            if underflow_timeout:
+                underflow_timeout -= 1
+                if underflow_timeout == 0:
+                    logger.warning("Output underflowed")
+            elif underflowed:
+                underflow_timeout = 100
+
+            # If underflowing, write some zeros to catch up
+            if underflowed:
+                fill = self.output_stream.write_available
+                if fill:
+                    self.output_stream.write(numpy.zeros(fill,
+                                                         dtype=numpy.int16))
 
             if self.recording:
+                for track, frames in append_buf:
+                    track.append(frames, self.pos)
                 self.pos += 1
 
     def record(self, recording):
