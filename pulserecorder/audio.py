@@ -1,3 +1,4 @@
+import atexit
 import bisect
 import numpy
 import sounddevice
@@ -47,6 +48,12 @@ class Track(object):
         else:
             return None
 
+    def close(self):
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream.close()
+            self.stream = None
+
 
 class AudioMixer(object):
     """The audio recording and mixing backend.
@@ -57,6 +64,7 @@ class AudioMixer(object):
         self.rate = rate
         self.chunk = chunk
         self.live = True
+        self.closed = False
 
         self.pos = 0
         self.tracks = set()
@@ -72,8 +80,10 @@ class AudioMixer(object):
         self.reading_thread.setDaemon(True)
         self.reading_thread.start()
 
+        atexit.register(self.close)
+
     def _read_write_loop(self):
-        while True:
+        while not self.closed:
             if not self.recording.is_set():
                 self.recording.wait()
 
@@ -111,3 +121,14 @@ class AudioMixer(object):
         track = Track(stream)
         self.tracks.add(track)
         return track
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.reading_thread.join()
+
+            self.output_stream.stop()
+            self.output_stream.close()
+
+            for track in self.tracks:
+                track.close()

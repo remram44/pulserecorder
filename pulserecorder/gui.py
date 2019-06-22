@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 import pulsectl
@@ -9,6 +10,10 @@ from . import audio
 
 
 logger = logging.getLogger('pulserecorder')
+
+
+# Connect to pulseaudio
+pulse = pulsectl.Pulse('pulse-recorder-gui')
 
 
 def get_icon(name):
@@ -75,15 +80,12 @@ class PulseRecorder(QtWidgets.QWidget):
 
         self.setLayout(layout)
 
-        # Connect to pulseaudio
-        self.pulse = pulsectl.Pulse('pulse-recorder-gui')
-
         # Find our own output so we can hide it
         self.ignored_inputs = set()
-        old_inputs = set(pb.index for pb in self.pulse.sink_input_list())
+        old_inputs = set(pb.index for pb in pulse.sink_input_list())
         self.audio_mixer = audio.AudioMixer()
         time.sleep(0.5)
-        for pb in self.pulse.sink_input_list():
+        for pb in pulse.sink_input_list():
             if pb.index not in old_inputs:
                 self.ignored_inputs.add(pb.index)
 
@@ -106,7 +108,7 @@ class PulseRecorder(QtWidgets.QWidget):
         # Find all listeners using pulsectl
         disconnected = dict(self.tracks_map)
         apps = []
-        for out in self.pulse.sink_input_list():
+        for out in pulse.sink_input_list():
             if out.index in self.ignored_inputs:
                 continue
             app = {'idx': out.index}
@@ -161,14 +163,14 @@ class PulseRecorder(QtWidgets.QWidget):
         if not self.tracks_map:
             # Remove "no tracks" label
             layout.takeAt(0).widget().deleteLater()
-        widget = Track(app, self.pulse, self.audio_mixer)
+        widget = Track(app, self.audio_mixer)
         layout.insertWidget(self.tracks.layout().count() - 1, widget)
         self.tracks_map[app['name']] = widget
         logger.info("Added track %s", app['name'])
         self.refresh_sources()
 
 
-def create_nullsink(pulse):
+def create_nullsink():
     default_in = pulse.server_info().default_source_name
     default_out = pulse.server_info().default_sink_name
 
@@ -180,6 +182,7 @@ def create_nullsink(pulse):
         'module-null-sink',
         args='sink_properties=device.description=pulserecorder',
     )
+    _clear_nullsinks.mods.add(mod)
     time.sleep(0.5)
     nullsink, = [sink
                  for sink in pulse.sink_list()
@@ -190,10 +193,18 @@ def create_nullsink(pulse):
     return nullsink, nullmonitor
 
 
+@atexit.register
+def _clear_nullsinks():
+    for mod in _clear_nullsinks.mods:
+        pulse.module_unload(mod)
+
+
+_clear_nullsinks.mods = set()
+
+
 class Track(QtWidgets.QGroupBox):
-    def __init__(self, app, pulse, audio_mixer):
+    def __init__(self, app, audio_mixer):
         super(Track, self).__init__(app['name'])
-        self.pulse = pulse
         self.app = app
         self.connected = True
 
@@ -204,7 +215,7 @@ class Track(QtWidgets.QGroupBox):
         self.setLayout(layout)
 
         # Wire up the app to a pulseaudio nullsink
-        nullsink, nullmonitor = create_nullsink(self.pulse)
+        nullsink, nullmonitor = create_nullsink()
         pulse.sink_input_move(app['idx'], nullsink.index)
 
         # Create recording stream
