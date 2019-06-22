@@ -110,7 +110,7 @@ class PulseRecorder(QtWidgets.QWidget):
 
     def refresh_sources(self):
         # Find all listeners using pulsectl
-        disconnected = dict(self.tracks_map)
+        disconnected = {k: dict(v) for k, v in self.tracks_map.items()}
         apps = []
         for out in pulse.sink_input_list():
             # Ignore ourselves
@@ -118,35 +118,56 @@ class PulseRecorder(QtWidgets.QWidget):
                    out.proplist.get('application.process.binary'))
             if key in self.ignored_inputs:
                 continue
-            app = {'idx': out.index}
+
+            # Come up with a readable name
             if ('application.name' in out.proplist and
                     'application.process.binary' in out.proplist):
-                app['name'] = '%s (%s)' % (
+                name = '%s (%s)' % (
                     out.proplist['application.process.binary'],
                     out.proplist['application.name'],
                 )
             elif 'application.process.binary' in out.proplist:
-                app['name'] = out.proplist['application.process.binary']
+                name = out.proplist['application.process.binary']
             elif 'application.name' in out.proplist:
-                app['name'] = out.proplist['application.name']
+                name = out.proplist['application.name']
             else:
-                app['name'] = 'unknown'
+                name = 'unknown'
+
+            # If it's currently tracked, it's not disconnected
+            if name in self.tracks_map and out.index in self.tracks_map[name]:
+                if len(disconnected[name]) == 1:
+                    del disconnected[name]
+                else:
+                    del disconnected[name][out.index]
+                continue
+
+            # Build app dictionary
+            app = {'idx': out.index, 'name': name}
             if 'application.icon_name' in out.proplist:
                 app['icon'] = out.proplist['application.icon_name']
 
-            if app['name'] in self.tracks_map:
-                disconnected.pop(app['name'], None)
-                continue
+            # Handle reconnections
+            if name in self.tracks_map:
+                candidates = [(idx, track)
+                              for idx, track in self.tracks_map[name].items()
+                              if not track.connected]
+                if len(candidates) == 1:
+                    old_idx, track = candidates[0]
+                    track.reconnect(app)
+                    del self.tracks_map[name][old_idx]
+                    self.tracks_map[name][app['idx']] = track
+                    return
+                elif len(candidates) > 1:
+                    logger.warning("Can't reconnect %s: multiple candidates",
+                                   name)
 
             apps.append(app)
 
         # Mark disconnected tracks
-        for name, track in disconnected.items():
-            if track.connected:
-                track.disconnect()
-            self.tracks_map.pop(name, None)
-
-        # TODO: Handle reconnections
+        for name, tracks in disconnected.items():
+            for idx, track in tracks.items():
+                if track.connected:
+                    track.disconnect()
 
         # Update the list
         layout = self.sources.layout()
@@ -172,7 +193,7 @@ class PulseRecorder(QtWidgets.QWidget):
             layout.takeAt(0).widget().deleteLater()
         widget = Track(app, self.audio_mixer)
         layout.insertWidget(self.tracks.layout().count() - 1, widget)
-        self.tracks_map[app['name']] = widget
+        self.tracks_map[app['name']] = {app['idx']: widget}
         logger.info("Added track %s", app['name'])
         self.refresh_sources()
 
@@ -223,8 +244,8 @@ class Track(QtWidgets.QGroupBox):
         self.connected = True
 
         # Wire up the app to a pulseaudio nullsink
-        nullsink, nullmonitor = create_nullsink()
-        pulse.sink_input_move(app['idx'], nullsink.index)
+        self.nullsink, nullmonitor = create_nullsink()
+        pulse.sink_input_move(app['idx'], self.nullsink.index)
 
         # Create recording stream
         old_outputs = set(rec.index for rec in pulse.source_output_list())
@@ -250,6 +271,13 @@ class Track(QtWidgets.QGroupBox):
         self.connected = False
         self.waveform.connected = False
         logger.warning("Track %s disconnected", self.app['name'])
+
+    def reconnect(self, app):
+        self.app = app
+        pulse.sink_input_move(app['idx'], self.nullsink.index)
+        self.connected = True
+        self.waveform.connected = True
+        logger.warning("Track %s reconnected", self.app['name'])
 
 
 class Waveform(QtWidgets.QWidget):
