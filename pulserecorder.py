@@ -9,15 +9,17 @@ import sys
 logger = logging.getLogger('pulserecorder')
 
 
-def get_icon(icon):
-    if icon in get_icon.cache:
-        return get_icon.cache[icon]
+def get_icon(name):
+    if name in get_icon.cache:
+        return get_icon.cache[name]
 
-    logging.info("Getting icon %s" % icon)
-    if not os.path.isabs(icon):
-        return QtGui.QIcon.fromTheme(icon)
+    logging.info("Getting icon %s" % name)
+    if not os.path.isabs(name):
+        icon = QtGui.QIcon.fromTheme(name)
     else:
-        return QtGui.QIcon(icon)
+        icon = QtGui.QIcon(name)
+    get_icon.cache[name] = icon
+    return icon
 
 
 get_icon.cache = {}
@@ -94,10 +96,9 @@ class PulseRecorder(QtWidgets.QWidget):
 
     def refresh_sources(self):
         # Find all listeners using pulsectl
+        disconnected = dict(self.tracks_map)
         apps = []
         for out in self.pulse.sink_input_list():
-            if out.index in self.tracks_map:
-                continue
             app = {'idx': out.index}
             if ('application.name' in out.proplist and
                     'application.process.binary' in out.proplist):
@@ -113,7 +114,20 @@ class PulseRecorder(QtWidgets.QWidget):
                 app['name'] = 'unknown'
             if 'application.icon_name' in out.proplist:
                 app['icon'] = out.proplist['application.icon_name']
+
+            if app['name'] in self.tracks_map:
+                disconnected.pop(app['name'], None)
+                continue
+
             apps.append(app)
+
+        # Mark disconnected tracks
+        for name, track in disconnected.items():
+            if track.connected:
+                track.disconnect()
+            self.tracks_map.pop(name, None)
+
+        # TODO: Handle reconnections
 
         # Update the list
         layout = self.sources.layout()
@@ -139,7 +153,8 @@ class PulseRecorder(QtWidgets.QWidget):
             layout.takeAt(0).widget().deleteLater()
         widget = Track(app)
         layout.insertWidget(self.tracks.layout().count() - 1, widget)
-        self.tracks_map[app['idx']] = widget
+        self.tracks_map[app['name']] = widget
+        logger.info("Added track %s", app['name'])
         self.refresh_sources()
 
 
@@ -147,10 +162,16 @@ class Track(QtWidgets.QGroupBox):
     def __init__(self, app):
         super(Track, self).__init__(app['name'])
         self.app = app
+        self.connected = True
+
         layout = QtWidgets.QVBoxLayout()
         self.waveform = Waveform()
         layout.addWidget(self.waveform)
         self.setLayout(layout)
+
+    def disconnect(self):
+        self.connected = False
+        logger.info("Track %s disconnected", self.app['name'])
 
 
 class Waveform(QtWidgets.QWidget):
