@@ -1,9 +1,11 @@
 import logging
+import numpy
 import os
 import pulsectl
 from qtpy import QtCore, QtGui, QtWidgets
 import sounddevice
 import sys
+import time
 
 
 logger = logging.getLogger('pulserecorder')
@@ -151,23 +153,75 @@ class PulseRecorder(QtWidgets.QWidget):
         if not self.tracks_map:
             # Remove "no tracks" label
             layout.takeAt(0).widget().deleteLater()
-        widget = Track(app)
+        widget = Track(self.pulse, app)
         layout.insertWidget(self.tracks.layout().count() - 1, widget)
         self.tracks_map[app['name']] = widget
         logger.info("Added track %s", app['name'])
         self.refresh_sources()
 
 
+def create_nullsink(pulse):
+    default_in = pulse.server_info().default_source_name
+    default_out = pulse.server_info().default_sink_name
+
+    # Restore defaults
+    pulse.sink_default_set(default_in)
+    pulse.source_default_set(default_out)
+
+    mod = pulse.module_load(
+        'module-null-sink',
+        args='sink_properties=device.description=pulserecorder',
+    )
+    time.sleep(0.5)
+    nullsink, = [sink
+                 for sink in pulse.sink_list()
+                 if sink.owner_module == mod]
+    nullmonitor, = [source
+                    for source in pulse.source_list()
+                    if source.name == nullsink.monitor_source_name]
+    return nullsink, nullmonitor
+
+
 class Track(QtWidgets.QGroupBox):
-    def __init__(self, app):
+    RATE = 44100
+    CHUNK = 1024
+
+    def __init__(self, pulse, app):
         super(Track, self).__init__(app['name'])
+        self.pulse = pulse
         self.app = app
         self.connected = True
 
+        # Create UI
         layout = QtWidgets.QVBoxLayout()
         self.waveform = Waveform()
         layout.addWidget(self.waveform)
         self.setLayout(layout)
+
+        # Wire up the app to a pulseaudio nullsink
+        nullsink, nullmonitor = create_nullsink(self.pulse)
+        pulse.sink_input_move(app['idx'], nullsink.index)
+
+        # Create recording stream
+        old_sources = set(rec.index for rec in pulse.source_output_list())
+        self.recorder = sounddevice.InputStream(
+            channels=2, dtype=numpy.int16,
+            samplerate=self.RATE, blocksize=self.CHUNK,
+        )
+        self.recorder.start()
+        time.sleep(0.5)
+
+        # Wire up the recording stream to the pulseaudio nullsink monitor
+        for rec in pulse.source_output_list():
+            if rec.index in old_sources:
+                pass
+            pulse.source_output_move(rec.index, nullmonitor.index)
+            break
+        else:
+            assert 0, "Couldn't set up recording"
+
+    def consume(self):
+        self.recorder.read(self.CHUNK)
 
     def disconnect(self):
         self.connected = False
