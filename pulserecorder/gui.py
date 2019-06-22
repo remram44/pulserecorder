@@ -1,4 +1,5 @@
 import atexit
+import itertools
 import logging
 import os
 import pulsectl
@@ -259,13 +260,15 @@ class Waveform(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         for re in event.region().rects():
             painter.fillRect(re, QtGui.QColor(200, 200, 255))
-        painter.setPen(QtGui.QColor(0, 0, 255))
+        painter.setBrush(QtGui.QColor(0, 0, 255))
         for waveform, start in zip(self.audio_track.waveforms,
                                    self.audio_track.waveforms_offsets):
-            painter.drawPolyline(self.poly(
-                (pos, 50.0 - value / 32.0)
-                for pos, value in enumerate(waveform, start)
-            ))
+            painter.drawPolygon(self.poly(itertools.chain(
+                ((pos, 50.0 - value / 32768.0 * 50.0)
+                 for pos, value in enumerate(waveform, start)),
+                ((start + i, 50.0 + waveform[i] / 32768.0 * 50.0)
+                 for i in reversed(range(len(waveform))))
+            )))
         painter.end()
 
     @staticmethod

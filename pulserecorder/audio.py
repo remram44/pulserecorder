@@ -35,7 +35,7 @@ class Track(object):
                 waveform = []
                 self.waveforms.append(waveform)
                 self.waveforms_offsets.append(pos)
-        waveform.append(numpy.mean(buf))
+        waveform.append(numpy.max(numpy.abs(buf)))
 
     def get_waveform_at(self, pos):
         idx = bisect.bisect(self.waveforms_offsets, pos)
