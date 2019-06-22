@@ -211,12 +211,6 @@ class Track(QtWidgets.QGroupBox):
         self.app = app
         self.connected = True
 
-        # Create UI
-        layout = QtWidgets.QVBoxLayout()
-        self.waveform = Waveform()
-        layout.addWidget(self.waveform)
-        self.setLayout(layout)
-
         # Wire up the app to a pulseaudio nullsink
         nullsink, nullmonitor = create_nullsink()
         pulse.sink_input_move(app['idx'], nullsink.index)
@@ -235,14 +229,25 @@ class Track(QtWidgets.QGroupBox):
         else:
             assert 0, "Couldn't set up recording"
 
+        # Create UI
+        layout = QtWidgets.QVBoxLayout()
+        self.waveform = Waveform(self.audio_track)
+        layout.addWidget(self.waveform)
+        self.setLayout(layout)
+
     def disconnect(self):
         self.connected = False
         logger.info("Track %s disconnected", self.app['name'])
 
 
 class Waveform(QtWidgets.QWidget):
-    def __init__(self):
+    def __init__(self, audio_track):
         super(Waveform, self).__init__()
+        self.audio_track = audio_track
+        timer = QtCore.QTimer(self)
+        timer.setSingleShot(False)
+        timer.timeout.connect(lambda: self.update(self.visibleRegion()))
+        timer.start(100)
 
     def minimumSizeHint(self):
         return QtCore.QSize(100, 100)
@@ -255,10 +260,12 @@ class Waveform(QtWidgets.QWidget):
         for re in event.region().rects():
             painter.fillRect(re, QtGui.QColor(200, 200, 255))
         painter.setPen(QtGui.QColor(0, 0, 255))
-        painter.drawPolyline(self.poly([
-            (0, 50), (10, 30), (20, 20), (30, 40), (40, 0), (50, 30),
-            (60, 30), (70, 10), (80, 20), (90, 20), (100, 50)
-        ]))
+        for waveform, start in zip(self.audio_track.waveforms,
+                                   self.audio_track.waveforms_offsets):
+            painter.drawPolyline(self.poly(
+                (pos, 50.0 - value / 32.0)
+                for pos, value in enumerate(waveform, start)
+            ))
         painter.end()
 
     @staticmethod
