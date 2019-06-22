@@ -1,5 +1,4 @@
 import pyaudio
-import wave
 
 
 FORMAT = pyaudio.paInt16
@@ -14,7 +13,7 @@ stream = audio.open(format=FORMAT,
                     rate=RATE,
                     input=True,
                     frames_per_buffer=CHUNK)
-print("Recording...")
+print("Recording", end='', flush=True)
 frames = []
 for i in range(int(RATE / CHUNK * 5)):
     data = stream.read(CHUNK)
