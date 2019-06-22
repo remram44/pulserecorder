@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "pulserecorder"
+version = "0.1"
+description = "Meeting recorder for PulseAudio"
+
+license = "BSD-3-Clause"
+
+authors = [
+    "Remi Rampin <r@remirampin.com>"
+]
+
+readme = "README.rst"
+
+repository = "https://gitlab.com/remram44/pulserecorder"
+
+keywords = ["audio", "recording", "meeting", "pulseaudio"]
+
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License (GPL)",
+    "Natural Language :: English",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Communications :: Conferencing",
+    "Topic :: Multimedia :: Sound/Audio :: Capture/Recording",
+    "Topic :: Office/Business",
+    "Topic :: Utilities",
+]
+
+include = [
+    # LICENSE.txt README.rst
+]
+
+[tool.poetry.dependencies]
+python = "^3.5.3"
+pulsectl = "~18.12"
+qtpy = "*"
+sounddevice = "~0.3"
+
+[tool.poetry.scripts]
+taguette = "pulserecorder.gui:main"
+
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"

@@ -1,4 +1,4 @@
-Meeting Record
+Pulse Recorder
 ==============
 
 Features:
