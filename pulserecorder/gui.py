@@ -171,13 +171,11 @@ class PulseRecorder(QtWidgets.QWidget):
 
 
 def create_nullsink():
+    # Identify defaults. They might switch to the new module, and we'll restore
     default_in = pulse.server_info().default_source_name
     default_out = pulse.server_info().default_sink_name
 
-    # Restore defaults
-    pulse.sink_default_set(default_in)
-    pulse.source_default_set(default_out)
-
+    # Load
     mod = pulse.module_load(
         'module-null-sink',
         args='sink_properties=device.description=pulserecorder',
@@ -190,6 +188,11 @@ def create_nullsink():
     nullmonitor, = [source
                     for source in pulse.source_list()
                     if source.name == nullsink.monitor_source_name]
+
+    # Restore defaults
+    pulse.source_default_set(default_in)
+    pulse.sink_default_set(default_out)
+
     return nullsink, nullmonitor
 
 

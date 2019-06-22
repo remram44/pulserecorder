@@ -68,14 +68,15 @@ class AudioMixer(object):
 
         self.pos = 0
         self.tracks = set()
-        self.output_buf = numpy.zeros(rate * chunk, dtype=numpy.uint16)
+        self.output_buf = numpy.zeros((chunk, 1), dtype=numpy.int16)
 
         self.output_stream = sounddevice.OutputStream(
             channels=1, dtype=numpy.int16,
             samplerate=self.rate, blocksize=self.chunk,
         )
+        self.output_stream.start()
 
-        self.recording = threading.Event()
+        self.recording = False
         self.reading_thread = threading.Thread(target=self._read_write_loop)
         self.reading_thread.setDaemon(True)
         self.reading_thread.start()
@@ -84,33 +85,32 @@ class AudioMixer(object):
 
     def _read_write_loop(self):
         while not self.closed:
-            if not self.recording.is_set():
-                self.recording.wait()
-
             # Zero buffer
             self.output_buf[:] = 0
 
+            mixed = 0
+
             for track in self.tracks:
                 # Read input
-                frames = track.stream.read(self.chunk)
-                assert frames.shape == (self.rate * self.chunk,)
+                frames, overflowed = track.stream.read(self.chunk)
+                assert frames.shape == (self.chunk, 1)
 
                 # Mix
                 if self.live and not track.live_muted:
+                    mixed += 1
                     self.output_buf += frames
 
-                track.append(frames, self.pos)
+                if self.recording:
+                    track.append(frames, self.pos)
 
             # Write output
             self.output_stream.write(self.output_buf)
 
-            self.pos += 1
+            if self.recording:
+                self.pos += 1
 
     def record(self, recording):
-        if recording:
-            self.recording.set()
-        else:
-            self.recording.clear()
+        self.recording = recording
 
     def new_track(self):
         stream = sounddevice.InputStream(
