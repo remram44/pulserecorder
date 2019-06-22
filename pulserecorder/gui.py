@@ -1,11 +1,11 @@
 import logging
-import numpy
 import os
 import pulsectl
 from qtpy import QtCore, QtGui, QtWidgets
-import sounddevice
 import sys
 import time
+
+from . import audio
 
 
 logger = logging.getLogger('pulserecorder')
@@ -78,6 +78,15 @@ class PulseRecorder(QtWidgets.QWidget):
         # Connect to pulseaudio
         self.pulse = pulsectl.Pulse('pulse-recorder-gui')
 
+        # Find our own output so we can hide it
+        self.ignored_inputs = set()
+        old_inputs = set(pb.index for pb in self.pulse.sink_input_list())
+        self.audio_mixer = audio.AudioMixer()
+        time.sleep(0.5)
+        for pb in self.pulse.sink_input_list():
+            if pb.index not in old_inputs:
+                self.ignored_inputs.add(pb.index)
+
         # Set timer to refresh sources
         timer = QtCore.QTimer(self)
         timer.setSingleShot(False)
@@ -101,6 +110,8 @@ class PulseRecorder(QtWidgets.QWidget):
         disconnected = dict(self.tracks_map)
         apps = []
         for out in self.pulse.sink_input_list():
+            if out.index in self.ignored_inputs:
+                continue
             app = {'idx': out.index}
             if ('application.name' in out.proplist and
                     'application.process.binary' in out.proplist):
@@ -153,7 +164,7 @@ class PulseRecorder(QtWidgets.QWidget):
         if not self.tracks_map:
             # Remove "no tracks" label
             layout.takeAt(0).widget().deleteLater()
-        widget = Track(self.pulse, app)
+        widget = Track(app, self.pulse, self.audio_mixer)
         layout.insertWidget(self.tracks.layout().count() - 1, widget)
         self.tracks_map[app['name']] = widget
         logger.info("Added track %s", app['name'])
@@ -183,10 +194,7 @@ def create_nullsink(pulse):
 
 
 class Track(QtWidgets.QGroupBox):
-    RATE = 44100
-    CHUNK = 1024
-
-    def __init__(self, pulse, app):
+    def __init__(self, app, pulse, audio_mixer):
         super(Track, self).__init__(app['name'])
         self.pulse = pulse
         self.app = app
@@ -203,25 +211,18 @@ class Track(QtWidgets.QGroupBox):
         pulse.sink_input_move(app['idx'], nullsink.index)
 
         # Create recording stream
-        old_sources = set(rec.index for rec in pulse.source_output_list())
-        self.recorder = sounddevice.InputStream(
-            channels=2, dtype=numpy.int16,
-            samplerate=self.RATE, blocksize=self.CHUNK,
-        )
-        self.recorder.start()
+        old_outputs = set(rec.index for rec in pulse.source_output_list())
+        self.audio_track = audio_mixer.new_track()
         time.sleep(0.5)
 
         # Wire up the recording stream to the pulseaudio nullsink monitor
         for rec in pulse.source_output_list():
-            if rec.index in old_sources:
+            if rec.index in old_outputs:
                 pass
             pulse.source_output_move(rec.index, nullmonitor.index)
             break
         else:
             assert 0, "Couldn't set up recording"
-
-    def consume(self):
-        self.recorder.read(self.CHUNK)
 
     def disconnect(self):
         self.connected = False
@@ -254,7 +255,7 @@ class Waveform(QtWidgets.QWidget):
         return QtGui.QPolygon([QtCore.QPoint(*p) for p in points])
 
 
-if __name__ == '__main__':
+def main():
     logging.basicConfig(level=logging.INFO)
 
     app = QtWidgets.QApplication(sys.argv)
