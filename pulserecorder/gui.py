@@ -194,6 +194,10 @@ def create_nullsink():
     pulse.source_default_set(default_in)
     pulse.sink_default_set(default_out)
 
+    # Set volumes
+    pulse.volume_set_all_chans(nullsink, 1.0)
+    pulse.volume_set_all_chans(nullmonitor, 1.0)
+
     return nullsink, nullmonitor
 
 
